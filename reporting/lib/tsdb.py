@@ -22,7 +22,6 @@ class TSBase:
 
 
 class Elastic(TSBase):
-    URL = 'http://es7.nsone.co:9200/'
     DEFAULT_INDEX = 'pktvisor3'
 
     # https://www.elastic.co/guide/en/elasticsearch/reference/5.5/search-aggregations-bucket-terms-aggregation.html#_size
