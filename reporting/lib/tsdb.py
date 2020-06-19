@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from hashlib import md5
 import pandas as pd
 
@@ -13,8 +14,9 @@ TS_TIME_FMT = '%Y/%m/%d-%H:%M:%S'
 class TSBase:
     ''' these classes should interface between a specific TSDB backend and return only pandas data models,
         no bokeh models or knowledge'''
-    def __init__(self, report: 'ReportMaker', force=False):
-        self.report = report
+
+    def __init__(self, url, force=False):
+        self.url = url
         self.force = force
 
     def query(self, query):
@@ -110,7 +112,7 @@ class Elastic(TSBase):
         # if date buckets > samples, we got too much data back from tsdb somehow
         elif num_date_buckets > num_samples:
             LOG.warning('too many date buckets returned, truncating to %s' % num_samples)
-            for i in range(0, num_date_buckets-num_samples):
+            for i in range(0, num_date_buckets - num_samples):
                 vals.popitem()
 
         assert len(vals.keys()) == num_samples, 'mismatched number of date buckets'
@@ -149,31 +151,34 @@ class Elastic(TSBase):
         for id in vals_by_id:
             assert len(
                 vals_by_id[id]) == num_samples, 'id %s does not have enough values (%s) based on date interval (%s)' % (
-            id,
-            len(vals_by_id[new_id]), num_samples)
+                id,
+                len(vals_by_id[new_id]), num_samples)
             series_list[id] = pd.Series(vals_by_id[id], index=date_index)
 
         frame = pd.DataFrame(series_list)
 
         return frame
 
-    def query(self, metric: tuple, aggs={}, term_filters: dict = None, script_filters: dict = None, index: str = None, term_must_nots: dict = None):
+    def query(self, metric: tuple = None, aggs={}, term_filters: dict = None, script_filters: dict = None,
+              index: str = None, term_must_nots: dict = None, start_time='now-1d/d', end_time='now/d'):
 
-        assert len(metric) == 2
         query = {
             'size': 0,
             'query': {
                 'bool': {
                     'filter': [
-                        {'range': {'@timestamp': {"gte": self.report.start_time.strftime(TS_TIME_FMT),
-                                                  "lte": self.report.end_time.strftime(TS_TIME_FMT),
+                        {'range': {'@timestamp': {"gte": start_time,
+                                                  "lte": end_time,
                                                   "format": "yyyy/MM/dd-HH:mm:ss"}}},
-                        {'term': {metric[0]: metric[1]}}
                     ]
                 }
             },
             'aggs': aggs
         }
+
+        if metric:
+            assert len(metric) == 2
+            query['query']['bool']['filter'].append({'term': {metric[0]: metric[1]}})
 
         if script_filters:
             for k, v in script_filters.items():
@@ -192,10 +197,15 @@ class Elastic(TSBase):
         LOG.debug(squery)
 
         hashid = md5(squery.encode('latin1')).hexdigest()
-        dfname = '%s%s-%s-%s-%s.json' % (self.report.cachedir, self.report.fname_base, metric[0], metric[1], hashid)
-        qfname = '%s%s-%s-%s-%s.query' % (self.report.cachedir, self.report.fname_base, metric[0], metric[1], hashid)
+        fname_base = 'report'
+        outputdir = 'output/%s/' % fname_base  # type: str
+        cachedir = '%scache/' % outputdir  # type: str
+        os.makedirs(cachedir, exist_ok=True)
 
-        baseurl = self.URL
+        dfname = '%s%s-%s.json' % (cachedir, fname_base, hashid)
+        qfname = '%s%s-%s.query' % (cachedir, fname_base, hashid)
+
+        baseurl = self.url
         if index is None:
             index = self.DEFAULT_INDEX
         url = '%s%s-*/_search' % (baseurl, index)

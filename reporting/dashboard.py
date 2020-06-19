@@ -1,32 +1,30 @@
-''' Create a simple stocks correlation dashboard.
+"""
+Dashboard for pktvisor
 
-Choose stocks to compare in the drop down widgets, and make selections
-on the plots to update the summary and histograms accordingly.
+ Usage:
+   dashboard.py ELASTIC_URL [-v VERBOSITY]
+   dashboard.py (-h | --help)
 
-.. note::
-    Running this example requires downloading sample data. See
-    the included `README`_ for more information.
+ Options:
+   -h --help        Show this screen.
+   -v VERBOSITY     How verbose output should be, 0 is silent [default: 1]
 
-Use the ``bokeh serve`` command to run the example by executing:
+"""
 
-    bokeh serve stocks
-
-at your command prompt. Then navigate to the URL
-
-    http://localhost:5006/stocks
-
-.. _README: https://github.com/bokeh/bokeh/blob/master/examples/app/stocks/README.md
-
-'''
 from functools import lru_cache
 from os.path import dirname, join
+import logging
+import docopt
 
 import pandas as pd
 
-from bokeh.io import curdoc
 from bokeh.layouts import column, row
 from bokeh.models import ColumnDataSource, PreText, Select
 from bokeh.plotting import figure
+from bokeh.server.server import Server
+from lib.tsdb import Elastic
+
+LOG = logging.getLogger(__name__)
 
 DATA_DIR = join(dirname(__file__), 'daily')
 
@@ -123,14 +121,61 @@ def selection_change(attrname, old, new):
 
 source.selected.on_change('indices', selection_change)
 
-# set up layout
-widgets = column(ticker1, ticker2, stats)
-main_row = row(corr, widgets)
-series = column(ts1, ts2)
-layout = column(main_row, series)
+def app(doc):
+    # set up layout
+    widgets = column(ticker1, ticker2, stats)
+    main_row = row(corr, widgets)
+    series = column(ts1, ts2)
+    layout = column(main_row, series)
 
-# initialize
-update()
+    # initialize
+    update()
 
-curdoc().add_root(layout)
-curdoc().title = "Stocks"
+    doc.add_root(layout)
+    doc.title = "Stocks"
+
+def get_variables(url):
+    aggs = {
+               "pop_list": {
+                   "terms": {"field": "pop.raw", "size": 100}
+               },
+               "network_list": {
+                   "terms": {"field": "network.raw", "size": 100}
+               },
+               "host_list": {
+                   "terms": {"field": "host.raw", "size": 100}
+               }
+           }
+    term_filters = None
+    tsdb = Elastic(url)
+    result = tsdb.query(None, aggs, term_filters=term_filters)
+
+    for n in result['aggregations']['network_list']['buckets']:
+        print('network: ' + n['key'])
+    for n in result['aggregations']['pop_list']['buckets']:
+        print('pop: ' + n['key'])
+    for n in result['aggregations']['host_list']['buckets']:
+        print('host: ' + n['key'])
+
+def main():
+    opts = docopt.docopt(__doc__, version='1.0')
+
+    if int(opts['-v']) > 1:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+
+    print('Opening Bokeh application on http://localhost:5006/, ELK is at ' + opts['ELASTIC_URL'])
+
+    get_variables(opts['ELASTIC_URL'])
+
+    # Setting num_procs here means we can't touch the IOLoop before now, we must
+    # let Server handle that. If you need to explicitly handle IOLoops then you
+    # will need to use the lower level BaseServer class.
+    server = Server({'/': app}, num_procs=1)
+    server.start()
+
+    server.io_loop.start()
+
+if __name__ == "__main__":
+    main()
