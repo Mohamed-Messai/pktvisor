@@ -53,46 +53,51 @@ def get_data(t1, t2):
     data['t2_returns'] = data[t2+'_returns']
     return data
 
-# set up widgets
+def setup():
+    global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2
+    stats = PreText(text='', width=500)
+    ticker1 = Select(value='AAPL', options=nix('GOOG', DEFAULT_TICKERS))
+    ticker2 = Select(value='GOOG', options=nix('AAPL', DEFAULT_TICKERS))
 
-stats = PreText(text='', width=500)
-ticker1 = Select(value='AAPL', options=nix('GOOG', DEFAULT_TICKERS))
-ticker2 = Select(value='GOOG', options=nix('AAPL', DEFAULT_TICKERS))
+    ticker3 = Select()
 
+    source = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
+    source_static = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
+    tools = 'pan,wheel_zoom,xbox_select,reset'
 
-ticker3 = Select()
+    corr = figure(plot_width=350, plot_height=350,
+                  tools='pan,wheel_zoom,box_select,reset')
+    corr.circle('t1_returns', 't2_returns', size=2, source=source,
+                selection_color="orange", alpha=0.6, nonselection_alpha=0.1, selection_alpha=0.4)
 
-# set up plots
+    ts1 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime', active_drag="xbox_select")
+    ts1.line('date', 't1', source=source_static)
+    ts1.circle('date', 't1', size=1, source=source, color=None, selection_color="orange")
 
-source = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
-source_static = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
-tools = 'pan,wheel_zoom,xbox_select,reset'
-
-corr = figure(plot_width=350, plot_height=350,
-              tools='pan,wheel_zoom,box_select,reset')
-corr.circle('t1_returns', 't2_returns', size=2, source=source,
-            selection_color="orange", alpha=0.6, nonselection_alpha=0.1, selection_alpha=0.4)
-
-ts1 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime', active_drag="xbox_select")
-ts1.line('date', 't1', source=source_static)
-ts1.circle('date', 't1', size=1, source=source, color=None, selection_color="orange")
-
-ts2 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime', active_drag="xbox_select")
-ts2.x_range = ts1.x_range
-ts2.line('date', 't2', source=source_static)
-ts2.circle('date', 't2', size=1, source=source, color=None, selection_color="orange")
-
-# set up callbacks
+    ts2 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime', active_drag="xbox_select")
+    ts2.x_range = ts1.x_range
+    ts2.line('date', 't2', source=source_static)
+    ts2.circle('date', 't2', size=1, source=source, color=None, selection_color="orange")
+    ticker1.on_change('value', ticker1_change)
+    ticker2.on_change('value', ticker2_change)
+    source.selected.on_change('indices', selection_change)
 
 def ticker1_change(attrname, old, new):
+    global ticker2
     ticker2.options = nix(new, DEFAULT_TICKERS)
     update()
 
 def ticker2_change(attrname, old, new):
+    global ticker1
     ticker1.options = nix(new, DEFAULT_TICKERS)
     update()
 
+def ticker3_change(attrname, old, new):
+    global ticker3
+    ticker3.options
+
 def update(selected=None):
+    global source, source_static, corr, ts1, ts2
     t1, t2 = ticker1.value, ticker2.value
 
     df = get_data(t1, t2)
@@ -108,10 +113,8 @@ def update(selected=None):
 def update_stats(data, t1, t2):
     stats.text = str(data[[t1, t2, t1+'_returns', t2+'_returns']].describe())
 
-ticker1.on_change('value', ticker1_change)
-ticker2.on_change('value', ticker2_change)
-
 def selection_change(attrname, old, new):
+    global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2
     t1, t2 = ticker1.value, ticker2.value
     data = get_data(t1, t2)
     selected = source.selected.indices
@@ -119,10 +122,10 @@ def selection_change(attrname, old, new):
         data = data.iloc[selected, :]
     update_stats(data, t1, t2)
 
-source.selected.on_change('indices', selection_change)
-
 def app(doc):
     # set up layout
+    global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2
+    setup()
     widgets = column(ticker1, ticker2, stats)
     main_row = row(corr, widgets)
     series = column(ts1, ts2)
@@ -150,12 +153,18 @@ def get_variables(url):
     tsdb = Elastic(url)
     result = tsdb.query(None, aggs, term_filters=term_filters)
 
+    networks = []
+    pops = []
+    hosts = []
+
     for n in result['aggregations']['network_list']['buckets']:
-        print('network: ' + n['key'])
+        networks.append(n['key'])
     for n in result['aggregations']['pop_list']['buckets']:
-        print('pop: ' + n['key'])
+        pops.append(n['key'])
     for n in result['aggregations']['host_list']['buckets']:
-        print('host: ' + n['key'])
+        hosts.append(n['key'])
+
+    return (networks, pops, hosts)
 
 def main():
     opts = docopt.docopt(__doc__, version='1.0')
@@ -167,7 +176,7 @@ def main():
 
     print('Opening Bokeh application on http://localhost:5006/, ELK is at ' + opts['ELASTIC_URL'])
 
-    get_variables(opts['ELASTIC_URL'])
+    (networks, pops, hosts) = get_variables(opts['ELASTIC_URL'])
 
     # Setting num_procs here means we can't touch the IOLoop before now, we must
     # let Server handle that. If you need to explicitly handle IOLoops then you
