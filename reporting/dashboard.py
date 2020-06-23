@@ -72,27 +72,27 @@ def setup():
     ticker2 = Select(value=pop, options=pop_list)
     ticker3 = Select(value=host, options=host_list)
 
-    source = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
-    source_static = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
-    tools = 'pan,wheel_zoom,xbox_select,reset'
-
-    corr = figure(plot_width=350, plot_height=350,
-                  tools='pan,wheel_zoom,box_select,reset')
-    corr.circle('t1_returns', 't2_returns', size=2, source=source,
-                selection_color="orange", alpha=0.6, nonselection_alpha=0.1, selection_alpha=0.4)
-
-    ts1 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime', active_drag="xbox_select")
-    ts1.line('date', 't1', source=source_static)
-    ts1.circle('date', 't1', size=1, source=source, color=None, selection_color="orange")
-
-    ts2 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime', active_drag="xbox_select")
-    ts2.x_range = ts1.x_range
-    ts2.line('date', 't2', source=source_static)
-    ts2.circle('date', 't2', size=1, source=source, color=None, selection_color="orange")
+    # source = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
+    # source_static = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
+    # tools = 'pan,wheel_zoom,xbox_select,reset'
+    #
+    # corr = figure(plot_width=350, plot_height=350,
+    #               tools='pan,wheel_zoom,box_select,reset')
+    # corr.circle('t1_returns', 't2_returns', size=2, source=source,
+    #             selection_color="orange", alpha=0.6, nonselection_alpha=0.1, selection_alpha=0.4)
+    #
+    # ts1 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime', active_drag="xbox_select")
+    # ts1.line('date', 't1', source=source_static)
+    # ts1.circle('date', 't1', size=1, source=source, color=None, selection_color="orange")
+    #
+    # ts2 = figure(plot_width=900, plot_height=200, tools=tools, x_axis_type='datetime', active_drag="xbox_select")
+    # ts2.x_range = ts1.x_range
+    # ts2.line('date', 't2', source=source_static)
+    # ts2.circle('date', 't2', size=1, source=source, color=None, selection_color="orange")
     ticker1.on_change('value', ticker1_change)
     ticker2.on_change('value', ticker2_change)
     ticker3.on_change('value', ticker3_change)
-    source.selected.on_change('indices', selection_change)
+    # source.selected.on_change('indices', selection_change)
 
 
 def ticker1_change(attrname, old, new):
@@ -123,8 +123,13 @@ def ticker3_change(attrname, old, new):
     pass
 
 def update(selected=None):
-    global source, source_static, corr, ts1, ts2
-    t1, t2 = ticker1.value, ticker2.value
+    global ticker1, ticker2, ticker3
+    network = ticker1.value
+    pop = ticker2.value
+    host = ticker3.value
+
+    # global source, source_static, corr, ts1, ts2
+    # t1, t2 = ticker1.value, ticker2.value
 
     # df = get_data(t1, t2)
     # data = df[['t1', 't2', 't1_returns', 't2_returns']]
@@ -156,8 +161,10 @@ def app(doc):
     global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2
     setup()
     widgets = column(ticker1, ticker2, ticker3, stats)
-    main_row = row(corr, widgets)
-    series = column(ts1, ts2)
+    main_row = row(widgets)
+    series = column()
+    # main_row = row(corr, widgets)
+    # series = column(ts1, ts2)
     layout = column(main_row, series)
 
     # initialize
