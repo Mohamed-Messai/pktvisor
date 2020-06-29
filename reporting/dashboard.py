@@ -62,15 +62,15 @@ def setup():
     stats = PreText(text='', width=500)
     topology = get_variables(opts['ELASTIC_URL'])
 
-    network_list = [*topology]
-    network = network_list[0]
-    pop_list = [*topology[network]]
-    pop = pop_list[0]
-    host_list = [*topology[network][pop]]
-    host = host_list[0]
-    ticker1 = Select(value=network, options=network_list)
-    ticker2 = Select(value=pop, options=pop_list)
-    ticker3 = Select(value=host, options=host_list)
+    network_list = ['-']+[*topology]
+    # network = network_list[0]
+    # pop_list = [*topology[network]]
+    # pop = pop_list[0]
+    # host_list = [*topology[network][pop]]
+    # host = host_list[0]
+    ticker1 = Select(value='-', options=network_list)
+    ticker2 = Select(options=['-'])
+    ticker3 = Select(options=['-'])
 
     # source = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
     # source_static = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
@@ -98,10 +98,12 @@ def setup():
 def ticker1_change(attrname, old, new):
     global ticker2, ticker3, topology
     network = new
-    pop_list = [*topology[network]]
-    pop = pop_list[0]
-    host_list = [*topology[network][pop]]
-    host = host_list[0]
+    if network == '-':
+        return
+    pop_list = ['-']+[*topology[network]]
+    pop = '-'
+    host_list = ['-']
+    host = '-'
     ticker2.options = pop_list
     ticker2.value = pop
     ticker3.options = host_list
@@ -113,20 +115,25 @@ def ticker2_change(attrname, old, new):
     global ticker1, ticker3, topology
     network = ticker1.value
     pop = new
-    host_list = [*topology[network][pop]]
-    host = host_list[0]
+    if pop == '-':
+        return
+    host_list = ['-']+[*topology[network][pop]]
+    host = '-'
     ticker3.options = host_list
     ticker3.value = host
     update()
 
 def ticker3_change(attrname, old, new):
-    pass
+    update()
 
 def update(selected=None):
-    global ticker1, ticker2, ticker3
+    global ticker1, ticker2, ticker3, opts
     network = ticker1.value
     pop = ticker2.value
     host = ticker3.value
+    if pop == '-' or network == '-' or host == '-':
+        return
+    get_top_n(opts['ELASTIC_URL'], network, pop, host)
 
     # global source, source_static, corr, ts1, ts2
     # t1, t2 = ticker1.value, ticker2.value
@@ -173,6 +180,112 @@ def app(doc):
     doc.add_root(layout)
     doc.title = "pktvisor"
 
+
+def get_top_n(url, network, pop, host):
+    aggs = {"top_n": {
+        "scripted_metric": {
+            "init_script": """
+        state.top_n = new HashMap();
+        state.top_n["dns_top_qname2"] = new LinkedHashMap();
+        state.top_n["dns_top_qname3"] = new LinkedHashMap();
+        state.top_n["dns_top_nxdomain"] = new LinkedHashMap();
+        state.top_n["dns_top_qtype"] = new LinkedHashMap();
+        state.top_n["dns_top_rcode"] = new LinkedHashMap();
+        state.top_n["dns_top_refused"] = new LinkedHashMap();
+        state.top_n["dns_top_srvfail"] = new LinkedHashMap();
+        state.top_n["dns_top_udp_ports"] = new LinkedHashMap();
+        state.top_n["dns_xact_in_top_slow"] = new LinkedHashMap();
+        state.top_n["dns_xact_out_top_slow"] = new LinkedHashMap();
+        state.top_n["packets_top_ASN"] = new LinkedHashMap();
+        state.top_n["packets_top_geoLoc"] = new LinkedHashMap();
+        state.top_n["packets_top_ipv4"] = new LinkedHashMap();
+        state.top_n["packets_top_ipv6"] = new LinkedHashMap();
+      """,
+            "map_script": """
+      long deep = doc["http.packets_deep_samples"][0].longValue();
+      long total = doc["http.packets_total"][0].longValue();
+      double adjust = 1.0;
+      if (total > 0L && deep > 0L) {
+        adjust = Math.round(1.0 / (deep.doubleValue() / total.doubleValue()));            
+      }
+      for (Map.Entry entry: state.top_n.entrySet()) {
+        for (int i = 0; i <= 9; i++) {
+          String name_key = "http." + entry.getKey() + "_" + String.valueOf(i) + "_name.raw";
+          String val_key = "http." + entry.getKey() + "_" + String.valueOf(i) + "_estimate";
+          if (doc.containsKey(name_key) && doc[name_key].size() > 0 && doc[val_key].size() > 0) {
+            String name = doc[name_key][0].toLowerCase();
+            long val = doc[val_key][0].longValue();
+            if (state.top_n[entry.getKey()].containsKey(name)) {
+              state.top_n[entry.getKey()][name] += (long)(val*adjust);              
+            }
+            else {
+              state.top_n[entry.getKey()][name] = (long)(val*adjust);
+            }
+          }
+        }
+      }
+      """,
+            "combine_script": """
+      for (Map.Entry entry: state.top_n.entrySet()) {
+        ArrayList list = state.top_n[entry.getKey()].entrySet().stream().sorted(Map.Entry.comparingByValue())
+        .collect(Collectors.toList());
+        Collections.reverse(list);
+        state.top_n[entry.getKey()].clear();
+        int i = 0;
+        for (Map.Entry subentry: list) {
+          i++;
+          if (i > 10)
+            break;
+          state.top_n[entry.getKey()].put(subentry.getKey(), subentry.getValue());
+        }
+      }
+      return state.top_n;
+      """,
+            "reduce_script": """
+      HashMap top_n = new HashMap();
+      for (shard_map in states) {
+        for (Map.Entry entry : shard_map.entrySet()) {
+          if (!top_n.containsKey(entry.getKey())) {
+            top_n[entry.getKey()] = new LinkedHashMap();              
+          }
+          for (Map.Entry subentry : entry.getValue().entrySet()) {
+            if (top_n[entry.getKey()].containsKey(subentry.getKey())) {
+              top_n[entry.getKey()][subentry.getKey()] += subentry.getValue();              
+            }
+            else {
+              top_n[entry.getKey()][subentry.getKey()] = subentry.getValue();  
+            }
+          }
+        }
+      }
+      for (Map.Entry entry: top_n.entrySet()) {
+        ArrayList list = top_n[entry.getKey()].entrySet().stream().sorted(Map.Entry.comparingByValue())
+        .collect(Collectors.toList());
+        Collections.reverse(list);
+        top_n[entry.getKey()].clear();
+        int i = 0;
+        for (Map.Entry subentry: list) {
+          i++;
+          if (i > 10)
+            break;
+          top_n[entry.getKey()].put(subentry.getKey(), subentry.getValue());
+        }
+      }        
+      return top_n;
+      """
+        }
+    }
+    }
+
+    term_filters = {
+        # 'network': network,
+        'pop': pop,
+        # 'host': host,
+    }
+    tsdb = Elastic(url)
+    result = tsdb.query(None, aggs, term_filters=term_filters, index='pktvisor3')
+    print(result)
+    return result['aggregations']['top_n']['value']
 
 def get_variables(url):
     aggs = {"networks": {
