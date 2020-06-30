@@ -19,7 +19,7 @@ import docopt
 import pandas as pd
 
 from bokeh.layouts import column, row
-from bokeh.models import ColumnDataSource, PreText, Select
+from bokeh.models import ColumnDataSource, PreText, Select, Button
 from bokeh.plotting import figure
 from bokeh.server.server import Server
 from lib.tsdb import Elastic
@@ -58,13 +58,13 @@ def get_data(t1, t2):
 
 
 def setup():
-    global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2, opts, topology
+    global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2, opts, topology, button
     stats = PreText(text='', width=500)
     topology = get_variables(opts['ELASTIC_URL'])
 
     network_list = ['-']+[*topology]
     # network = network_list[0]
-    # pop_list = [*topology[network]]
+    # pop_list = [*toplogy[network]]
     # pop = pop_list[0]
     # host_list = [*topology[network][pop]]
     # host = host_list[0]
@@ -72,6 +72,8 @@ def setup():
     ticker2 = Select(options=['-'])
     ticker3 = Select(options=['-'])
 
+    button = Button(label="Go", button_type="success")
+    button.on_click(go_button)
     # source = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
     # source_static = ColumnDataSource(data=dict(date=[], t1=[], t2=[], t1_returns=[], t2_returns=[]))
     # tools = 'pan,wheel_zoom,xbox_select,reset'
@@ -94,6 +96,8 @@ def setup():
     ticker3.on_change('value', ticker3_change)
     # source.selected.on_change('indices', selection_change)
 
+def go_button():
+    update()
 
 def ticker1_change(attrname, old, new):
     global ticker2, ticker3, topology
@@ -108,7 +112,6 @@ def ticker1_change(attrname, old, new):
     ticker2.value = pop
     ticker3.options = host_list
     ticker3.value = host
-    update()
 
 
 def ticker2_change(attrname, old, new):
@@ -121,17 +124,16 @@ def ticker2_change(attrname, old, new):
     host = '-'
     ticker3.options = host_list
     ticker3.value = host
-    update()
 
 def ticker3_change(attrname, old, new):
-    update()
+    pass
 
 def update(selected=None):
     global ticker1, ticker2, ticker3, opts
     network = ticker1.value
     pop = ticker2.value
     host = ticker3.value
-    if pop == '-' or network == '-' or host == '-':
+    if network == '-':
         return
     get_top_n(opts['ELASTIC_URL'], network, pop, host)
 
@@ -165,9 +167,9 @@ def selection_change(attrname, old, new):
 
 def app(doc):
     # set up layout
-    global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2
+    global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2, button
     setup()
-    widgets = column(ticker1, ticker2, ticker3, stats)
+    widgets = column(ticker1, ticker2, ticker3, button, stats)
     main_row = row(widgets)
     series = column()
     # main_row = row(corr, widgets)
@@ -278,13 +280,16 @@ def get_top_n(url, network, pop, host):
     }
 
     term_filters = {
-        # 'network': network,
-        'pop': pop,
-        # 'host': host,
+        'network.raw': network,
     }
+    if pop != '-':
+        term_filters['pop.raw'] = pop
+    if host != '-':
+        term_filters['host.raw'] = host
     tsdb = Elastic(url)
     result = tsdb.query(None, aggs, term_filters=term_filters, index='pktvisor3')
     print(result)
+    
     return result['aggregations']['top_n']['value']
 
 def get_variables(url):
