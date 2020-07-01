@@ -19,6 +19,7 @@ import docopt
 import pandas as pd
 
 from bokeh.layouts import column, row
+from bokeh.models import TableColumn, DataTable
 from bokeh.models import ColumnDataSource, PreText, Select, Button
 from bokeh.plotting import figure
 from bokeh.server.server import Server
@@ -56,11 +57,25 @@ def get_data(t1, t2):
     data['t2_returns'] = data[t2 + '_returns']
     return data
 
+def get_data_table(): #top_n_table: dict):
+    stats_table = dict(
+        # name=top_n_table.keys(),
+        # value=top_n_table.values()
+    )
+
+    source = ColumnDataSource(stats_table)
+
+    columns = [
+        TableColumn(field="name", title="Name"),
+        TableColumn(field="value", title="Value"),
+    ]
+    return DataTable(source=source, columns=columns, width=400, height=400, sortable=False)
 
 def setup():
     global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2, opts, topology, button
-    stats = PreText(text='', width=500)
+    # stats = PreText(text='', width=500)
     topology = get_variables(opts['ELASTIC_URL'])
+    print(topology)
 
     network_list = ['-']+[*topology]
     # network = network_list[0]
@@ -128,6 +143,11 @@ def ticker2_change(attrname, old, new):
 def ticker3_change(attrname, old, new):
     pass
 
+def update_top_n(top_n):
+    global top_tables
+
+    top_tables['dns_top_qname3'].source.data = dict({'name': list(top_n['dns_top_qname3'].keys()), 'value': list(top_n['dns_top_qname3'].values())})
+
 def update(selected=None):
     global ticker1, ticker2, ticker3, opts
     network = ticker1.value
@@ -135,7 +155,8 @@ def update(selected=None):
     host = ticker3.value
     if network == '-':
         return
-    get_top_n(opts['ELASTIC_URL'], network, pop, host)
+    top_n = get_top_n(opts['ELASTIC_URL'], network, pop, host)
+    update_top_n(top_n)
 
     # global source, source_static, corr, ts1, ts2
     # t1, t2 = ticker1.value, ticker2.value
@@ -167,9 +188,12 @@ def selection_change(attrname, old, new):
 
 def app(doc):
     # set up layout
-    global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2, button
+    global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2, button, top_tables
     setup()
-    widgets = column(ticker1, ticker2, ticker3, button, stats)
+
+    top_tables = dict()
+    top_tables['dns_top_qname3'] = get_data_table()
+    widgets = column(ticker1, ticker2, ticker3, button, top_tables['dns_top_qname3'])
     main_row = row(widgets)
     series = column()
     # main_row = row(corr, widgets)
@@ -289,7 +313,7 @@ def get_top_n(url, network, pop, host):
     tsdb = Elastic(url)
     result = tsdb.query(None, aggs, term_filters=term_filters, index='pktvisor3')
     print(result)
-    
+
     return result['aggregations']['top_n']['value']
 
 def get_variables(url):
