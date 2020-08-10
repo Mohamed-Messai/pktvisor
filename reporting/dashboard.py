@@ -31,6 +31,22 @@ DATA_DIR = join(dirname(__file__), 'daily')
 
 DEFAULT_TICKERS = ['AAPL', 'GOOG', 'INTC', 'BRCM', 'YHOO']
 
+TOP_N = ["dns_top_qname2",
+         "dns_top_qname3",
+         "dns_top_nxdomain",
+         "dns_top_qtype",
+         "dns_top_rcode",
+         "dns_top_refused",
+         "dns_top_srvfail",
+         "dns_top_udp_ports",
+         "dns_xact_in_top_slow",
+         "dns_xact_out_top_slow",
+         "packets_top_ASN",
+         "packets_top_geoLoc",
+         "packets_top_ipv4",
+         "packets_top_ipv6",
+         ]
+
 
 def nix(val, lst):
     return [x for x in lst if x != val]
@@ -57,7 +73,8 @@ def get_data(t1, t2):
     data['t2_returns'] = data[t2 + '_returns']
     return data
 
-def get_data_table(): #top_n_table: dict):
+
+def get_data_table():  # top_n_table: dict):
     stats_table = dict(
         # name=top_n_table.keys(),
         # value=top_n_table.values()
@@ -71,13 +88,14 @@ def get_data_table(): #top_n_table: dict):
     ]
     return DataTable(source=source, columns=columns, width=400, height=400, sortable=False)
 
+
 def setup():
     global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2, opts, topology, button
     # stats = PreText(text='', width=500)
     topology = get_variables(opts['ELASTIC_URL'])
     print(topology)
 
-    network_list = ['-']+[*topology]
+    network_list = ['-'] + [*topology]
     # network = network_list[0]
     # pop_list = [*toplogy[network]]
     # pop = pop_list[0]
@@ -111,15 +129,17 @@ def setup():
     ticker3.on_change('value', ticker3_change)
     # source.selected.on_change('indices', selection_change)
 
+
 def go_button():
     update()
+
 
 def ticker1_change(attrname, old, new):
     global ticker2, ticker3, topology
     network = new
     if network == '-':
         return
-    pop_list = ['-']+[*topology[network]]
+    pop_list = ['-'] + [*topology[network]]
     pop = '-'
     host_list = ['-']
     host = '-'
@@ -135,18 +155,23 @@ def ticker2_change(attrname, old, new):
     pop = new
     if pop == '-':
         return
-    host_list = ['-']+[*topology[network][pop]]
+    host_list = ['-'] + [*topology[network][pop]]
     host = '-'
     ticker3.options = host_list
     ticker3.value = host
 
+
 def ticker3_change(attrname, old, new):
     pass
 
-def update_top_n(top_n):
-    global top_tables
 
-    top_tables['dns_top_qname3'].source.data = dict({'name': list(top_n['dns_top_qname3'].keys()), 'value': list(top_n['dns_top_qname3'].values())})
+def update_top_n(top_n):
+    global top_tables, TOP_N
+
+    for top in TOP_N:
+        top_tables[top].source.data = dict(
+            {'name': list(top_n[top].keys()), 'value': list(top_n[top].values())})
+
 
 def update(selected=None):
     global ticker1, ticker2, ticker3, opts
@@ -188,13 +213,17 @@ def selection_change(attrname, old, new):
 
 def app(doc):
     # set up layout
-    global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2, button, top_tables
+    global stats, ticker1, ticker2, ticker3, source, source_static, corr, ts1, ts2, button, top_tables, TOP_N
     setup()
 
     top_tables = dict()
-    top_tables['dns_top_qname3'] = get_data_table()
-    widgets = column(ticker1, ticker2, ticker3, button, top_tables['dns_top_qname3'])
-    main_row = row(widgets)
+    top_table_widgets = []
+    widgets = column(ticker1, ticker2, ticker3, button)
+    for top in TOP_N:
+        top_tables[top] = get_data_table()
+        top_table_widgets = top_tables[top]
+    top_table_widgets_column = column(top_table_widgets)
+    main_row = row(widgets, top_table_widgets_column)
     series = column()
     # main_row = row(corr, widgets)
     # series = column(ts1, ts2)
@@ -208,24 +237,11 @@ def app(doc):
 
 
 def get_top_n(url, network, pop, host):
+    global TOP_N
     aggs = {"top_n": {
         "scripted_metric": {
             "init_script": """
         state.top_n = new HashMap();
-        state.top_n["dns_top_qname2"] = new LinkedHashMap();
-        state.top_n["dns_top_qname3"] = new LinkedHashMap();
-        state.top_n["dns_top_nxdomain"] = new LinkedHashMap();
-        state.top_n["dns_top_qtype"] = new LinkedHashMap();
-        state.top_n["dns_top_rcode"] = new LinkedHashMap();
-        state.top_n["dns_top_refused"] = new LinkedHashMap();
-        state.top_n["dns_top_srvfail"] = new LinkedHashMap();
-        state.top_n["dns_top_udp_ports"] = new LinkedHashMap();
-        state.top_n["dns_xact_in_top_slow"] = new LinkedHashMap();
-        state.top_n["dns_xact_out_top_slow"] = new LinkedHashMap();
-        state.top_n["packets_top_ASN"] = new LinkedHashMap();
-        state.top_n["packets_top_geoLoc"] = new LinkedHashMap();
-        state.top_n["packets_top_ipv4"] = new LinkedHashMap();
-        state.top_n["packets_top_ipv6"] = new LinkedHashMap();
       """,
             "map_script": """
       long deep = doc["http.packets_deep_samples"][0].longValue();
@@ -303,6 +319,9 @@ def get_top_n(url, network, pop, host):
     }
     }
 
+    for top in TOP_N:
+        aggs["top_n"]["scripted_metric"]["init_script"] += "state.top_n[\"" + top + "\"] = new LinkedHashMap();\n"
+   
     term_filters = {
         'network.raw': network,
     }
@@ -315,6 +334,7 @@ def get_top_n(url, network, pop, host):
     print(result)
 
     return result['aggregations']['top_n']['value']
+
 
 def get_variables(url):
     aggs = {"networks": {
