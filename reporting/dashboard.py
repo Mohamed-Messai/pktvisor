@@ -217,17 +217,16 @@ def app(doc):
     setup()
 
     top_tables = dict()
-    top_table_widgets = []
-    widgets = column(ticker1, ticker2, ticker3, button)
+    rows = []
+    rows.append(row(ticker1, ticker2, ticker3, button))
+    top_row = []
     for top in TOP_N:
         top_tables[top] = get_data_table()
-        top_table_widgets = top_tables[top]
-    top_table_widgets_column = column(top_table_widgets)
-    main_row = row(widgets, top_table_widgets_column)
-    series = column()
-    # main_row = row(corr, widgets)
-    # series = column(ts1, ts2)
-    layout = column(main_row, series)
+        top_row.append(top_tables[top])
+        if len(top_row) == 3:
+            rows.append(row(children=top_row))
+            top_row = []
+    layout = column(children=rows)
 
     # initialize
     update()
@@ -321,7 +320,7 @@ def get_top_n(url, network, pop, host):
 
     for top in TOP_N:
         aggs["top_n"]["scripted_metric"]["init_script"] += "state.top_n[\"" + top + "\"] = new LinkedHashMap();\n"
-   
+
     term_filters = {
         'network.raw': network,
     }
