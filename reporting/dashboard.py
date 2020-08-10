@@ -20,7 +20,7 @@ import pandas as pd
 
 from bokeh.layouts import column, row
 from bokeh.models import TableColumn, DataTable
-from bokeh.models import ColumnDataSource, PreText, Select, Button
+from bokeh.models import ColumnDataSource, Paragraph, Select, Button
 from bokeh.plotting import figure
 from bokeh.server.server import Server
 from lib.tsdb import Elastic
@@ -86,7 +86,7 @@ def get_data_table():  # top_n_table: dict):
         TableColumn(field="name", title="Name"),
         TableColumn(field="value", title="Value"),
     ]
-    return DataTable(source=source, columns=columns, width=400, height=400, sortable=False)
+    return DataTable(source=source, columns=columns, width=400, height=400)
 
 
 def setup():
@@ -222,7 +222,7 @@ def app(doc):
     top_row = []
     for top in TOP_N:
         top_tables[top] = get_data_table()
-        top_row.append(top_tables[top])
+        top_row.append(column(Paragraph(text=top), top_tables[top]))
         if len(top_row) == 3:
             rows.append(row(children=top_row))
             top_row = []
